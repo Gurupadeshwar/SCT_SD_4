@@ -1,78 +1,63 @@
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import tkinter as tk
-from tkinter import messagebox
-from tkinter import filedialog
+import csv
 
-def scrape_flipkart(query):
+def get_search_url(query):
+    base = "https://www.flipkart.com/search?q="
+    return base + query.replace(" ", "+")
+
+def extract_product_info(soup):
+    products = []
+    cards = soup.find_all("div", {"class": "_1AtVbE"})
+
+    for card in cards:
+        name = card.find("div", {"class": "_4rR01T"})  # For laptops/phones
+        if not name:
+            name = card.find("a", {"class": "s1Q9rs"})  # For fashion items
+
+        price = card.find("div", {"class": "_30jeq3 _1_WHN1"})
+        rating = card.find("div", {"class": "_3LWZlK"})
+
+        if name and price:
+            products.append({
+                "Product Name": name.text.strip(),
+                "Price": price.text.strip(),
+                "Rating": rating.text.strip() if rating else "No Rating"
+            })
+    return products
+
+def save_to_csv(data, filename="products.csv"):
+    with open(filename, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=["Product Name", "Price", "Rating"])
+        writer.writeheader()
+        writer.writerows(data)
+    print(f"\n✅ Saved {len(data)} products to {filename}")
+
+def main():
+    print("🔍 Product Info Extractor - Flipkart")
+    query = input("Enter product name to search: ").strip()
+
+    if not query:
+        print("❌ Please enter a valid search keyword.")
+        return
+
+    url = get_search_url(query)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        "User-Agent": "Mozilla/5.0"
     }
-    search_url = f"https://www.flipkart.com/search?q={query.replace(' ', '+')}"
-    response = requests.get(search_url, headers=headers)
-    soup = BeautifulSoup(response.content, 'html.parser')
 
-    product_names = []
-    product_prices = []
-    product_ratings = []
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print("❌ Failed to retrieve data. Try again later.")
+        return
 
-    # Handle multiple HTML structures on Flipkart
-    items = soup.find_all("div", {"class": "_1AtVbE"})
+    soup = BeautifulSoup(response.content, "html.parser")
+    products = extract_product_info(soup)
 
-    for item in items:
-        name_tag = item.find("div", {"class": "_4rR01T"}) or item.find("a", {"class": "s1Q9rs"})
-        price_tag = item.find("div", {"class": "_30jeq3"})
-        rating_tag = item.find("div", {"class": "_3LWZlK"})
-
-        if name_tag and price_tag:
-            product_names.append(name_tag.get_text(strip=True))
-            product_prices.append(price_tag.get_text(strip=True))
-            product_ratings.append(rating_tag.get_text(strip=True) if rating_tag else "N/A")
-
-    return pd.DataFrame({
-        "Product Name": product_names,
-        "Price": product_prices,
-        "Rating": product_ratings
-    })
-
-# GUI App
-def run_gui():
-    def start_scraping():
-        query = entry.get()
-        if not query:
-            messagebox.showerror("Input Error", "Please enter a product name.")
-            return
-        try:
-            df = scrape_flipkart(query)
-            if df.empty:
-                messagebox.showinfo("No Results", "No products found.")
-                return
-            # Ask user where to save CSV
-            file_path = filedialog.asksaveasfilename(defaultextension=".csv",
-                                                     filetypes=[("CSV Files", "*.csv")],
-                                                     title="Save as")
-            if file_path:
-                df.to_csv(file_path, index=False)
-                messagebox.showinfo("Success", f"Data saved to {file_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to scrape: {str(e)}")
-
-    # GUI setup
-    root = tk.Tk()
-    root.title("Flipkart Product Scraper")
-    root.geometry("400x200")
-
-    label = tk.Label(root, text="Enter product to search on Flipkart:")
-    label.pack(pady=10)
-
-    entry = tk.Entry(root, width=40)
-    entry.pack(pady=5)
-
-    button = tk.Button(root, text="Scrape & Save", command=start_scraping)
-    button.pack(pady=20)
-
-    root.mainloop()
+    if not products:
+        print("⚠️ No products found.")
+    else:
+        save_to_csv(products)
 
 if __name__ == "__main__":
-    run_gui()
+    main()
